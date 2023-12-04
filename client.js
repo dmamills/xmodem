@@ -34,6 +34,7 @@ client.connect(PORT,HOST, () => {
 
 client.on('data', (data) => {
     console.log('Incoming packet: ', currentBlock)
+    hexDump(data);
 
     if(data.readUInt8(0) === EOT) {
         eot++;
@@ -49,6 +50,7 @@ client.on('data', (data) => {
             return;
         }
         //Store last bit of data??
+        
     }
     
     var firstByte = data.readUInt8(0);
@@ -56,10 +58,9 @@ client.on('data', (data) => {
 
     if(firstByte !== SOH && firstByte !== EOT) { console.log('soh?');client.write(createBuffForVal(CAN));  }
     if(data.readUInt8(1) !== currentBlock) { console.log('block?');client.write(createBuffForVal(CAN));  }
-
     if(data.readUInt8(2) !== 255-currentBlock) { console.log('1sb'); client.write(createBuffForVal(CAN));  }
 
-    console.log('Block processed successfully');
+    // console.log('Block processed successfully');
     var sum = 0;
     for(var o = 3; o < 131; o++) {
         sum += data.readUInt8(o);
@@ -67,7 +68,6 @@ client.on('data', (data) => {
     }
 
     var sentChecksum = data.readUInt8(131);
-
     if(sentChecksum == sum) {
         for(var n=0; n<128;n++) {
            buff[n+currentOffset] = data.readUInt8(n+3); 
@@ -83,11 +83,10 @@ client.on('data', (data) => {
         console.log('Bad!');
         client.write(createBuffForVal(NAK));
     }
-//    client.end();
 });
 
 
 client.on('close', () => {
     console.log('its over');
-    fs.writeFileSync('out.bin',buff);
+    fs.writeFileSync('out.bin', buff);
 })
