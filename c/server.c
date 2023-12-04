@@ -4,28 +4,10 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+#include "xmodem.h"
 
 #define PORT "3000"
-#define SOH 0x01 // start of header
-#define EOT 0x04// end of trans
-#define ACK 0x06 // ack
-#define NAK 0x15 // ! ack
-#define CAN 0x18 // cancel
-#define BUFFER_SIZE 128
-#define PACKET_SIZE 131
 
-typedef struct {
-    uint8_t* buffer;
-    size_t fsize;
-} xmodem_file_t;
-
-typedef struct  {
-    u_int8_t header_value;
-    u_int8_t packet_number;
-    u_int8_t packet_number_complement;
-    u_int8_t data[BUFFER_SIZE];
-    u_int8_t checksum;
-} xmodem_packet_t;
 
 void hexdump(const void *data, size_t size) {
     const unsigned char *p = (const unsigned char *)data;
@@ -116,7 +98,7 @@ int send_xmodem(int fd, xmodem_file_t* file) {
      int got_nak = 0;
      while(!got_nak) {
         //read single byte from fd
-        u_int8_t buf[1];
+        uint8_t buf[1];
         int bytes_read = recv(fd, buf, 1, 0);
         printf("Got bytes: %d char: %u\n", bytes_read, buf[0]);
         got_nak = (buf[0] == NAK);
@@ -133,7 +115,7 @@ int send_xmodem(int fd, xmodem_file_t* file) {
 
         // calculate checksum
         uint8_t checksum = 0;
-        for(int i = 0; i < BUFFER_SIZE; i++) {
+        for(int i = 0; i < BUFFER_SIZE-1; i++) {
             checksum += packet_data[i];
         }
 
@@ -141,8 +123,6 @@ int send_xmodem(int fd, xmodem_file_t* file) {
             transfer_done = 1;
         }
 
-
-        // prepare packet SOH/EOT + packet number + 255 - packet number + data + checksum
         xmodem_packet_t packet;
         packet.header_value = transfer_done ? EOT : SOH;
         packet.packet_number = current_packet;
@@ -150,34 +130,36 @@ int send_xmodem(int fd, xmodem_file_t* file) {
         memcpy(packet.data, packet_data, BUFFER_SIZE);
         packet.checksum = checksum;
 
-        hexdump(&packet, PACKET_SIZE);
-        // send packet
-        send(fd, &packet, PACKET_SIZE, 0);
+        // hexdump(&packet, PACKET_SIZE);
+
+        uint8_t sendBuf[PACKET_SIZE];
+        sendBuf[0] = packet.header_value;
+        sendBuf[1] = packet.packet_number;
+        sendBuf[2] = packet.packet_number_complement;
+        memcpy(sendBuf+3, packet.data, BUFFER_SIZE);
+        sendBuf[130] = packet.checksum;
+
+        send(fd, &sendBuf, PACKET_SIZE, 0);
 
         // wait for ACK or NAK
         int got_response = 0;
         while(!got_response) {
             //read single byte from fd
-            u_int8_t buf[1];
+            uint8_t buf[1];
             int bytes_read = recv(fd, buf, 1, 0);
             printf("Got bytes: %d char: %u\n", bytes_read, buf[0]);
-            got_response = (buf[0] == ACK);
+            // got_response = (buf[0] == ACK || buf[0] == NAK);
+            // if(buf[0] == ACK) {
+            //     current_packet++;
+            //     current_offset += BUFFER_SIZE;
+            // }
 
-            if(buf[0] == ACK) {
-                current_packet++;
-                current_offset += BUFFER_SIZE;
-            }
+            got_response = 1;
+            transfer_done = 1;
         }
         // if ACK increase packet number and repeat
         // if EOT wait for ACK and set transfer_done
     }
-
-
-    // prepare packet SOH/EOT + packet number + 255 - packet number + data + checksum
-    // wait for ACK or NAK
-    // if ACK increase packet number and repeat
-    // repeat until EOT
-
 
     return 1;
 }
