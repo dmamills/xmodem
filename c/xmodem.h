@@ -1,3 +1,5 @@
+#include <stdlib.h>
+
 #define SOH 0x01 // start of header
 #define EOT 0x04// end of trans
 #define ACK 0x06 // ack

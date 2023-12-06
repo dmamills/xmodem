@@ -148,23 +148,21 @@ int send_xmodem(int fd, xmodem_file_t* file) {
             uint8_t buf[1];
             int bytes_read = recv(fd, buf, 1, 0);
             printf("Got bytes: %d char: %u\n", bytes_read, buf[0]);
-            // got_response = (buf[0] == ACK || buf[0] == NAK);
-            // if(buf[0] == ACK) {
-            //     current_packet++;
-            //     current_offset += BUFFER_SIZE;
-            // }
+            got_response = (buf[0] == ACK || buf[0] == NAK);
+            if(buf[0] == ACK) {
+                current_packet++;
+                current_offset += BUFFER_SIZE;
+            }
+        }
 
-            got_response = 1;
+
+        if(packet.header_value == EOT) {
             transfer_done = 1;
         }
-        // if ACK increase packet number and repeat
-        // if EOT wait for ACK and set transfer_done
     }
 
     return 1;
 }
-
-
 
 int main(int argc, char *argv[]) {
     xmodem_file_t file;
