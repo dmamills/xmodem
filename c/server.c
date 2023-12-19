@@ -107,6 +107,7 @@ int send_xmodem(int fd, xmodem_file_t* file) {
     int transfer_done = 0;
     int current_packet = 1;
     int current_offset = 0;
+    int NAK_count = 0;
 
     while(!transfer_done) {
         /// read next 128 bytes from file
@@ -119,6 +120,7 @@ int send_xmodem(int fd, xmodem_file_t* file) {
             checksum += packet_data[i];
         }
 
+        // hexdump(packet_data, BUFFER_SIZE);
         if(current_offset + BUFFER_SIZE >= file->fsize) {
             transfer_done = 1;
         }
@@ -130,16 +132,9 @@ int send_xmodem(int fd, xmodem_file_t* file) {
         memcpy(packet.data, packet_data, BUFFER_SIZE);
         packet.checksum = checksum;
 
-        // hexdump(&packet, PACKET_SIZE);
-
-        uint8_t sendBuf[PACKET_SIZE];
-        sendBuf[0] = packet.header_value;
-        sendBuf[1] = packet.packet_number;
-        sendBuf[2] = packet.packet_number_complement;
-        memcpy(sendBuf+3, packet.data, BUFFER_SIZE);
-        sendBuf[130] = packet.checksum;
-
-        send(fd, &sendBuf, PACKET_SIZE, 0);
+        uint8_t sBuf[sizeof(packet)];
+        memcpy(sBuf, &packet, sizeof(packet));
+        send(fd, &sBuf, sizeof(sBuf), 0);
 
         // wait for ACK or NAK
         int got_response = 0;
@@ -152,9 +147,14 @@ int send_xmodem(int fd, xmodem_file_t* file) {
             if(buf[0] == ACK) {
                 current_packet++;
                 current_offset += BUFFER_SIZE;
+            } else if(buf[0] == NAK) {
+                NAK_count++;
+                if(NAK_count > 10) {
+                    printf("Too many NAKs Ending transfer\n");
+                    transfer_done = 1;
+                }
             }
         }
-
 
         if(packet.header_value == EOT) {
             transfer_done = 1;
@@ -166,7 +166,7 @@ int send_xmodem(int fd, xmodem_file_t* file) {
 
 int main(int argc, char *argv[]) {
     xmodem_file_t file;
-    if(read_file_to_xmodem_file("test-640.bin", &file) != 0) {
+    if(read_file_to_xmodem_file("test-586.bin", &file) != 0) {
         printf("Error reading file\n");
         return 1;
     }

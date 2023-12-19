@@ -54,36 +54,34 @@ void hexdump(const void *data, size_t size) {
     }
 }
 
-int is_packet_valid(uint8_t* buffer, int current_packet_number) {
-    if(buffer[0] != SOH && buffer[0] != EOT) {
+int is_packet_valid(xmodem_packet_t* packet, int current_packet_number) {
+    if(packet->header_value != SOH && packet->header_value != EOT) {
         printf("Invalid header\n");
         return 0;
     }
 
-    if(buffer[1] != current_packet_number) {
+    if(packet->packet_number != current_packet_number) {
         printf("Invalid packet number\n");
         return 0;
     }
 
-    if(buffer[2] != (current_packet_number ^ 0xFF)) {
+    if(packet->packet_number_complement != (current_packet_number ^ 0xFF)) {
         printf("Invalid packet compliment\n");
         return 0;
     }
 
     uint8_t checksum = 0;
     for(int i = 0; i < BUFFER_SIZE-1; i++) {
-        checksum += buffer[i+3];
+        checksum += packet->data[i];
     }
 
-    uint8_t sentChecksum = buffer[130];
-    if(checksum != sentChecksum) {
+    if(checksum != packet->checksum) {
         printf("Invalid checksum\n");
         return 0;
     }
 
     return 1;
 }
-
 
 int sent_byte(int fd, uint8_t byte) {
     uint8_t buf[1];
@@ -99,6 +97,10 @@ int sent_byte(int fd, uint8_t byte) {
 
 int main() {
     uint8_t final_buffer[BUFFER_SIZE * 8];
+    //zero out buffer
+    for(int i = 0; i < BUFFER_SIZE * 8; i++) {
+        final_buffer[i] = 0;
+    }
   
     int client_socket = setup_socket();
     if(client_socket == -1) {
@@ -123,9 +125,9 @@ int main() {
     int current_offset = 0;
     int transfer_complete = 0;
     int did_error = 0;
-    uint8_t buffer[PACKET_SIZE];
+    uint8_t buffer[sizeof(xmodem_packet_t)];
     while(!transfer_complete) {
-        int bytes_received = recv(client_socket, buffer, PACKET_SIZE, 0);
+        int bytes_received = recv(client_socket, buffer, sizeof(buffer), 0);
 
         if(bytes_received == 0) {
             printf("Connection closed by peer\n");
@@ -137,10 +139,12 @@ int main() {
             exit(EXIT_FAILURE);
         }
 
-        hexdump(buffer, bytes_received);
+        xmodem_packet_t received_packet;
+        memcpy(&received_packet, buffer, sizeof(xmodem_packet_t));
+        // hexdump(buffer, bytes_received);
 
         //respond to packet
-        if(is_packet_valid(buffer, current_packet)) {
+        if(is_packet_valid(&received_packet, current_packet)) {
            printf("Packet is valid! Send dat ACK\n");
            memcpy(final_buffer + current_offset, buffer + 3, BUFFER_SIZE);
            current_packet++;
@@ -157,6 +161,32 @@ int main() {
         //write data buffer to file
         memcpy(final_buffer + current_offset, buffer + 3, BUFFER_SIZE);
     }
+
+
+    //todo trim final buffer
+    // int lastZeroIdx = (BUFFER_SIZE * 8)-1;
+    // for(int i = (BUFFER_SIZE * 8)-1; i > -1; i--) {
+    //     if(final_buffer[i] == 0) {
+    //         lastZeroIdx = i;
+    //     } else {
+    //         break;
+    //     }
+    // }
+
+    // printf("Last zero idx: %d\n", lastZeroIdx);
+    // uint8_t final_buffer_trimmed[lastZeroIdx];
+    // memcpy(final_buffer_trimmed, final_buffer, lastZeroIdx);
+
+    // //write final buffer to file
+    FILE *fp = fopen("test-586-copy.bin", "wb");
+    if(fp == NULL) {
+        perror("Error opening file");
+        close(client_socket);
+        exit(EXIT_FAILURE);
+    }
+
+    int bytes_written = fwrite(final_buffer, 1, BUFFER_SIZE*8, fp);
+    fclose(fp);
 
     printf("Done recieving blocks, got %d blocks\n", current_packet);
     close(client_socket);
